@@ -110,31 +110,72 @@ Individual call failure response:
 
 Connection-level failures return HTTP `502` with a global error payload in the response detail.
 
-## Docker usage
+## Container installation
 
-Build locally:
+The container image is distributed through GitHub Container Registry (GHCR) only.
+Use the published GHCR image for installations and deployments instead of building a local deployment image.
 
-```sh
-docker build -t zabbix-websocket-bridge:local .
+Image:
+
+```text
+ghcr.io/voltkraft/zabbix-websocket-bridge
 ```
 
-Run locally:
+Pull and run the latest image:
 
 ```sh
-docker run --rm -p 8080:8080 \
-  -e HOST=0.0.0.0 \
-  -e PORT=8080 \
-  -e LOG_LEVEL=info \
-  zabbix-websocket-bridge:local
+docker pull ghcr.io/voltkraft/zabbix-websocket-bridge:latest
+docker run --rm --name zabbix-websocket-bridge -p 8080:8080 ghcr.io/voltkraft/zabbix-websocket-bridge:latest
 ```
 
-## Docker Compose example
+The container listens on port `8080` by default. Runtime configuration is controlled through environment variables:
+
+- `HOST`: bind address inside the container, defaults to `0.0.0.0`.
+- `PORT`: HTTP port inside the container, defaults to `8080`.
+- `LOG_LEVEL`: Uvicorn log level, defaults to `info`.
+
+## Docker Compose examples
+
+Basic `compose.yaml`:
+
+```yaml
+services:
+  zabbix-websocket-bridge:
+    image: ghcr.io/voltkraft/zabbix-websocket-bridge:latest
+    pull_policy: always
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+```
+
+
+Localhost-only binding for use behind a reverse proxy:
+
+```yaml
+services:
+  zabbix-websocket-bridge:
+    image: ghcr.io/voltkraft/zabbix-websocket-bridge:latest
+    pull_policy: always
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+```
+
+Start a Compose deployment:
 
 ```sh
-docker compose up --build
+docker compose up -d
 ```
 
-The included `compose.yaml` binds the service to `0.0.0.0:8080` inside the container and publishes port `8080` on the host.
+The included `compose.yaml` uses the same GHCR image and publishes port `8080` on the host.
 
 ## Example curl requests
 
@@ -187,34 +228,6 @@ Run tests:
 pytest
 ```
 
-## GitHub Actions overview
-
-The `container` workflow builds and publishes the container image to GitHub Container Registry using Docker Buildx, Docker Metadata Action, Docker Build Push Action, and GitHub Actions cache.
-
-The workflow runs on:
-
-- Pushes to `main` when container-relevant paths change.
-- Version tags matching `v*`.
-- Manual `workflow_dispatch` runs.
-- Weekly scheduled rebuilds, so base image and dependency updates are published even when the repository has not changed.
-
-Published tags include `latest`, branch names, semantic version tags, and commit SHA tags.
-
-## GHCR pull instructions
-
-Pull the latest image:
-
-```sh
-docker pull ghcr.io/<owner>/zabbix-websocket-bridge:latest
-```
-
-Run the image:
-
-```sh
-docker run --rm -p 8080:8080 ghcr.io/<owner>/zabbix-websocket-bridge:latest
-```
-
-Replace `<owner>` with the GitHub organization or user that owns the repository.
 
 ## Security considerations
 

@@ -1,7 +1,7 @@
 services:
   zabbix-websocket-bridge:
-    build: .
-    image: zabbix-websocket-bridge:local
+    image: ghcr.io/voltkraft/zabbix-websocket-bridge:latest
+    pull_policy: always
     environment:
       HOST: 0.0.0.0
       PORT: 8080
