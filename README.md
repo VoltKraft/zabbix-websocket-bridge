@@ -134,7 +134,7 @@ docker run --rm -p 8080:8080 \
 docker compose up --build
 ```
 
-The included `docker-compose.yml` binds the service to `0.0.0.0:8080` inside the container and publishes port `8080` on the host.
+The included `compose.yaml` binds the service to `0.0.0.0:8080` inside the container and publishes port `8080` on the host.
 
 ## Example curl requests
 
