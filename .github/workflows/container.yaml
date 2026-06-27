@@ -6,11 +6,6 @@ on:
       - main
     tags:
       - 'v*'
-    paths:
-      - Dockerfile
-      - pyproject.toml
-      - 'src/**'
-      - .github/workflows/container.yaml
   workflow_dispatch:
   schedule:
     - cron: '0 3 * * 0'
@@ -18,6 +13,14 @@ on:
 permissions:
   contents: read
   packages: write
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/voltkraft/zabbix-websocket-bridge
+  CANDIDATE_TAG: ghcr.io/voltkraft/zabbix-websocket-bridge:build-candidate
 
 jobs:
   build:
@@ -36,11 +39,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
+      - name: Extract Docker tags
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/zabbix-websocket-bridge
+          images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
@@ -48,12 +51,69 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
 
-      - name: Build and push
+      - name: Build candidate image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          pull: true
+          load: true
+          tags: ${{ env.CANDIDATE_TAG }}
+          labels: |
+            org.opencontainers.image.title=zabbix-websocket-bridge
+            org.opencontainers.image.description=Generic stateless HTTP-to-WebSocket JSON-RPC bridge
+            org.opencontainers.image.source=https://github.com/VoltKraft/zabbix-websocket-bridge
+            org.opencontainers.image.licenses=AGPL-3.0-only
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          no-cache: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+
+      - name: Compare candidate with published latest
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          candidate_config="$(docker image inspect "${CANDIDATE_TAG}" --format '{{.Id}}')"
+          remote_config=""
+
+          if raw="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}:latest" 2>/dev/null)"; then
+            remote_config="$(jq -r '.config.digest // empty' <<<"${raw}")"
+
+            if [ -z "${remote_config}" ]; then
+              manifest_digest="$(jq -r '[.manifests[]? | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest][0] // empty' <<<"${raw}")"
+
+              if [ -n "${manifest_digest}" ]; then
+                manifest="$(docker buildx imagetools inspect --raw "${IMAGE_NAME}@${manifest_digest}")"
+                remote_config="$(jq -r '.config.digest // empty' <<<"${manifest}")"
+              fi
+            fi
+          fi
+
+          echo "candidate_config=${candidate_config}" >> "${GITHUB_OUTPUT}"
+          echo "remote_config=${remote_config}" >> "${GITHUB_OUTPUT}"
+
+          if [ -n "${remote_config}" ] && [ "${candidate_config}" = "${remote_config}" ]; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "Candidate image matches ${IMAGE_NAME}:latest; skipping publish."
+          else
+            echo "changed=true" >> "${GITHUB_OUTPUT}"
+            echo "Candidate image differs from ${IMAGE_NAME}:latest; publishing is required."
+          fi
+
+      - name: Publish candidate image
+        if: steps.compare.outputs.changed == 'true' || github.ref_type == 'tag'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r tag; do
+            [ -n "${tag}" ] || continue
+            docker tag "${CANDIDATE_TAG}" "${tag}"
+            docker push "${tag}"
+          done <<<"${TAGS}"
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+
+      - name: Skip publish
+        if: steps.compare.outputs.changed == 'false' && github.ref_type != 'tag'
+        run: echo "No image changes detected compared to ${IMAGE_NAME}:latest."

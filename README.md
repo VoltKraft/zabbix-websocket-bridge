@@ -228,6 +228,20 @@ Run tests:
 pytest
 ```
 
+## Container build automation
+
+The `container` workflow builds the GHCR image automatically on:
+
+- Pushes to `main`.
+- Version tags matching `v*`.
+- Manual `workflow_dispatch` runs.
+- Weekly scheduled rebuilds.
+
+Scheduled and manual rebuilds pull the current base image and bypass the build cache, so base image and Python dependency updates are picked up even when the repository did not change.
+
+The workflow first builds a local candidate image and compares it with the currently published `ghcr.io/voltkraft/zabbix-websocket-bridge:latest` image. If the candidate is identical to the latest published image, nothing is pushed. If it differs, the candidate is tagged and published to GHCR.
+
+Published tags include `latest`, branch names, semantic version tags, and commit SHA tags.
 
 ## Security considerations
 
