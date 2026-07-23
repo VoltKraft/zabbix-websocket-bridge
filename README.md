@@ -230,7 +230,7 @@ pytest
 
 ## Container build automation
 
-The `container` workflow builds the GHCR image automatically on:
+The `Container Image` workflow (`.github/workflows/container-image.yaml`) builds the GHCR image automatically on:
 
 - Pushes to `main`.
 - Version tags matching `v*`.

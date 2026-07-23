@@ -1,4 +1,4 @@
-name: container
+name: Container Image
 
 on:
   push:
@@ -24,6 +24,7 @@ env:
 
 jobs:
   build:
+    name: Build and publish image
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
