@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit and container integration tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install test dependencies
+        run: pip install --upgrade pip && pip install ".[dev]"
+
+      - name: Run unit tests
+        run: pytest
+
+      - name: Start mock WebSocket server
+        run: |
+          python tests/integration/mock_ws_server.py > /tmp/mock-ws.log 2>&1 &
+          echo $! > /tmp/mock-ws.pid
+
+          for attempt in {1..20}; do
+            if python - <<'PY'
+import socket
+
+with socket.create_connection(("127.0.0.1", 8765), timeout=1):
+    pass
+PY
+            then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          cat /tmp/mock-ws.log
+          exit 1
+
+      - name: Build container
+        run: docker build --pull --tag zabbix-websocket-bridge:test .
+
+      - name: Start container
+        run: |
+          docker run --detach             --name zabbix-websocket-bridge             --add-host host.docker.internal:host-gateway             --publish 8080:8080             zabbix-websocket-bridge:test
+
+      - name: Verify health endpoint
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/health | grep -q '"status":"ok"'; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs zabbix-websocket-bridge
+          exit 1
+
+      - name: Verify end-to-end WebSocket bridge
+        run: |
+          response="$(
+            curl --fail --silent               --header 'Content-Type: application/json'               --data '{
+                "target": {
+                  "url": "ws://host.docker.internal:8765"
+                },
+                "calls": [
+                  {
+                    "name": "integration",
+                    "method": "demo.method",
+                    "params": {
+                      "value": 42
+                    }
+                  }
+                ]
+              }'               http://127.0.0.1:8080/api/v1/jsonrpc/batch
+          )"
+
+          python - "$response" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+
+assert payload["ok"] is True, payload
+assert payload["errors"] == [], payload
+assert payload["results"]["integration"]["ok"] is True, payload
+assert payload["results"]["integration"]["result"] == {
+    "method": "demo.method",
+    "params": {"value": 42},
+}, payload
+PY
+
+      - name: Show container logs on failure
+        if: failure()
+        run: |
+          docker logs zabbix-websocket-bridge || true
+          cat /tmp/mock-ws.log || true
