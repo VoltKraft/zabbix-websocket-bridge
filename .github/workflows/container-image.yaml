@@ -7,8 +7,6 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-  schedule:
-    - cron: '0 3 * * 0'
 
 permissions:
   contents: read
@@ -66,7 +64,7 @@ jobs:
             org.opencontainers.image.licenses=AGPL-3.0-only
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          no-cache: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+          no-cache: ${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Compare candidate with published latest
         id: compare
