@@ -9,7 +9,7 @@ authors = [{ name = "zabbix-websocket-bridge contributors" }]
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.34.0",
-  "pydantic>=2.10.0",
+  "pydantic>=2.14.3",
   "websockets>=15.0.1,<18",
 ]
 
