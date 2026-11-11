@@ -2,7 +2,7 @@
 
 `zabbix-websocket-bridge` is a generic, stateless HTTP-to-WebSocket JSON-RPC bridge for monitoring and automation systems that can send HTTP JSON requests but need to reach a JSON-RPC endpoint exposed over WebSocket.
 
-The project contains no vendor-specific behavior, no target-specific configuration, no credential storage, no sessions, no database, and no cache. Every request provides the complete WebSocket target and the JSON-RPC calls to execute.
+The project contains no vendor-specific behavior, no target-specific configuration, no credential storage, no sessions, no database, and no cache. Every request provides the complete WebSocket target and the JSON-RPC calls to execute. The bridge is a translator for trusted clients on a shared Docker network: it has no authentication, destination allowlist, or RPC method policy. The included Compose configuration publishes no host port.
 
 ## Architecture overview
 
@@ -68,11 +68,14 @@ Request:
 
 Validation rules:
 
-- `target.url` must use `ws://` or `wss://`.
+- `target.url` must use `ws://` or `wss://` and contain a valid host and port. Its length is limited to 2048 characters; fragments, whitespace, and control characters are rejected. Destinations and methods require no server-side registration.
 - `target.verify_tls` is optional and defaults to `true`.
 - `calls` must contain at least one call and at most 50 calls.
 - `timeout` is optional, defaults to 10 seconds, and may not exceed 60 seconds.
 - Unknown fields are rejected.
+- Bodies are limited to 128 KiB (including streamed/chunked requests), UTF-8, and 32 levels of JSON nesting before parsing. Body reception must finish within 10 seconds.
+- JSON params are limited to 8192 aggregate nodes and 2048 items per collection. Serialized RPC messages are limited to 64 KiB each and 128 KiB per batch. Only finite JSON numbers are accepted.
+- Target responses are limited to 64 KiB per WebSocket message and 1 MiB per batch; WebSocket compression is disabled.
 
 Successful response:
 
@@ -108,7 +111,7 @@ Individual call failure response:
 }
 ```
 
-Connection-level failures return HTTP `502` with a global error payload in the response detail.
+Connection-level failures return HTTP `502` with a global error payload in the response detail. Oversized bodies return `413`, invalid batches `422`, and slow body reception `408`. Excess concurrency is rejected immediately with `503` and `Retry-After: 1`; requests are not queued.
 
 ## Container installation
 
@@ -121,11 +124,14 @@ Image:
 ghcr.io/voltkraft/zabbix-websocket-bridge
 ```
 
-Pull and run the latest image:
+Pull and run the latest image on your existing `monitoring` Docker network (replace the network name as needed):
 
 ```sh
 docker pull ghcr.io/voltkraft/zabbix-websocket-bridge:latest
-docker run --rm --name zabbix-websocket-bridge -p 8080:8080 ghcr.io/voltkraft/zabbix-websocket-bridge:latest
+docker run --rm --name zabbix-websocket-bridge \
+  --network monitoring \
+  --memory=256m --cpus=1 --pids-limit=64 --ulimit nofile=1024:1024 \
+  ghcr.io/voltkraft/zabbix-websocket-bridge:latest
 ```
 
 The container listens on port `8080` by default. Runtime configuration is controlled through environment variables:
@@ -133,10 +139,11 @@ The container listens on port `8080` by default. Runtime configuration is contro
 - `HOST`: bind address inside the container, defaults to `0.0.0.0`.
 - `PORT`: HTTP port inside the container, defaults to `8080`.
 - `LOG_LEVEL`: Uvicorn log level, defaults to `info`.
+- `BRIDGE_MAX_CONCURRENT_BATCHES`: requests admitted per process, defaults to `8` (range 1–128), including body reception and response sending. The supplied runner uses one worker, a 64-connection server limit, a backlog of 64, and a five-second keep-alive timeout. Multiple workers/replicas multiply these limits.
 
 ## Docker Compose examples
 
-Basic `compose.yaml`:
+The included `compose.yaml` keeps the bridge reachable on its Docker network without publishing a host port:
 
 ```yaml
 services:
@@ -147,25 +154,16 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       LOG_LEVEL: info
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
-```
-
-
-Localhost-only binding for use behind a reverse proxy:
-
-```yaml
-services:
-  zabbix-websocket-bridge:
-    image: ghcr.io/voltkraft/zabbix-websocket-bridge:latest
-    pull_policy: always
-    environment:
-      HOST: 0.0.0.0
-      PORT: 8080
-      LOG_LEVEL: info
-    ports:
-      - "127.0.0.1:8080:8080"
+      BRIDGE_MAX_CONCURRENT_BATCHES: 8
+    expose:
+      - "8080"
+    mem_limit: 256m
+    cpus: 1.0
+    pids_limit: 64
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
     restart: unless-stopped
 ```
 
@@ -175,20 +173,24 @@ Start a Compose deployment:
 docker compose up -d
 ```
 
-The included `compose.yaml` uses the same GHCR image and publishes port `8080` on the host.
+Clients in the same Compose network can reach `http://zabbix-websocket-bridge:8080`. To connect a client from another Compose project, attach both services to the same existing Docker network. `expose` documents the container port; it does not publish it on the host or restrict outbound connections to target systems.
+
+No token, policy file, or target registration is required. The network boundary is the intended access control. The resource limits described here require an image built from this revision or later.
 
 ## Example curl requests
+
+Run these from a client container on the shared Docker network. For local development, use `localhost` instead of the service name.
 
 Health check:
 
 ```sh
-curl http://localhost:8080/health
+curl http://zabbix-websocket-bridge:8080/health
 ```
 
 Batch JSON-RPC request:
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/jsonrpc/batch \
+curl -X POST http://zabbix-websocket-bridge:8080/api/v1/jsonrpc/batch \
   -H 'Content-Type: application/json' \
   -d '{
     "target": {
@@ -219,7 +221,7 @@ pip install -e '.[dev]'
 Run the API locally:
 
 ```sh
-HOST=0.0.0.0 PORT=8080 LOG_LEVEL=info python -m zabbix_websocket_bridge.main
+HOST=127.0.0.1 PORT=8080 LOG_LEVEL=info python -m zabbix_websocket_bridge.main
 ```
 
 Run tests:
@@ -245,9 +247,11 @@ Published tags include `latest`, branch names, semantic version tags, and commit
 
 ## Security considerations
 
-- The bridge does not authenticate or authorize requests. Deploy it behind trusted network controls, an API gateway, or another authentication layer.
+- The bridge deliberately does not authenticate callers or restrict target addresses or RPC methods. Access is controlled by the shared trusted Docker network; the included Compose deployment publishes no host port.
+- The authentication and arbitrary-target scan findings represent this intended trust model; they are not claimed as fixed in application code. The body-size and concurrent-request findings are addressed with application resource limits.
+- Keep the container resource limits and configure `BRIDGE_MAX_CONCURRENT_BATCHES` for the available capacity. `/health` reports process liveness.
 - The bridge does not store credentials, sessions, target definitions, request payloads, responses, or cached data.
-- Logs are structured and intentionally avoid request payloads and full target URLs with credentials.
+- Operational target logs include only the origin, not URL credentials, paths, or query strings. Avoid debug protocol logging when payloads contain credentials.
 - If credentials are embedded in a WebSocket URL, they are used only for the outbound connection and are removed from operational log messages.
 - TLS verification is enabled by default for `wss://` targets. Disable it only for controlled development or test environments.
 - The container runs as a non-root user.

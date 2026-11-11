@@ -31,9 +31,11 @@ def configure_logging() -> None:
 
 
 def sanitize_url(url: str) -> str:
-    """Remove user information from a URL before logging it."""
+    """Log only the origin; paths and queries can carry credentials."""
     parsed = urlsplit(url)
     host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
     if parsed.port:
         host = f"{host}:{parsed.port}"
-    return urlunsplit((parsed.scheme, host, parsed.path, "", ""))
+    return urlunsplit((parsed.scheme, host, "", "", ""))
