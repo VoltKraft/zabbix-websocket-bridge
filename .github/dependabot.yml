@@ -1,0 +1,73 @@
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    # Raise the lower bounds even when the existing ranges allow a new release.
+    versioning-strategy: increase
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      python-development:
+        patterns:
+          - pytest*
+          - httpx
+          - hatchling
+        update-types: [minor, patch]
+      python-runtime:
+        patterns: ["*"]
+        exclude-patterns:
+          - pytest*
+          - httpx
+          - hatchling
+        update-types: [minor, patch]
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:15"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:30"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 3
+    commit-message:
+      prefix: chore
+      include: scope
+    # python:3-slim stays rolling; refreshes of that tag are pulled by the
+    # container workflow. Dependabot proposes changes to the tag itself.
+    # compose.yaml references our own :latest image, not a third-party input.

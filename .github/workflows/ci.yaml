@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.13', '3.x']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          check-latest: true
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install development dependencies
+        run: python -m pip install -e '.[dev]'
+
+      - name: Check installed dependencies
+        run: python -m pip check
+
+      - name: Run tests
+        run: python -m pytest -q
+
+  container:
+    name: Container build and health check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          pull: true
+          load: true
+          push: false
+          tags: zabbix-websocket-bridge:ci
+
+      - name: Check container health
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name bridge-ci \
+            --health-interval=1s --health-start-period=1s --health-retries=10 \
+            zabbix-websocket-bridge:ci
+          for attempt in {1..30}; do
+            status="$(docker inspect --format '{{.State.Health.Status}}' bridge-ci)"
+            case "${status}" in
+              healthy) exit 0 ;;
+              unhealthy) exit 1 ;;
+            esac
+            sleep 2
+          done
+          echo "Container did not become healthy within 60 seconds."
+          exit 1
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs bridge-ci
+
+      - name: Remove test container
+        if: always()
+        run: docker rm --force bridge-ci || true

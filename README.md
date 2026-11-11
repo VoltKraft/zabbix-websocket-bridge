@@ -245,6 +245,42 @@ The workflow first builds a local candidate image and compares it with the curre
 
 Published tags include `latest`, branch names, semantic version tags, and commit SHA tags.
 
+## Dependency updates
+
+[Dependabot](.github/dependabot.yml) checks Python dependencies, GitHub Actions,
+and the Docker base image every Monday starting at 07:00 Europe/Berlin.
+Python runtime and development/build minor and patch updates are grouped
+separately; GitHub Actions minor and patch updates form another group. Major
+version updates remain individual PRs. Version updates have a three-day release
+cooldown and a limit of five open PRs per ecosystem (two for Docker).
+
+Python updates use `versioning-strategy: increase` to raise the minimum versions
+in `pyproject.toml`, including when a newer release already fits an open range.
+Security updates are grouped separately for Python and GitHub Actions and do
+not wait for the weekly schedule or version-update cooldown. GitHub's dependency
+graph, Dependabot alerts, and Dependabot security updates must be enabled in the
+repository's **Settings → Advanced Security**; the YAML file alone does not
+enable those repository settings. The configuration takes effect when it reaches
+the default branch. See the [GitHub configuration reference](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference)
+and [security update setup](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/secure-your-dependencies/configure-security-updates).
+
+The rolling `python:3-slim` tag and unpinned Python installation remain intentional:
+scheduled image rebuilds still pick up current releases within the declared
+constraints. Dependabot's PR cooldown does not delay those installations. Docker
+updates cover changes to the base-image tag; refreshing the contents of the same
+tag is handled by the container workflow. Compose uses this project's own
+`:latest` image, so it has no separate Dependabot entry. There is no Python lock
+file; the manifest does not record the exact transitive packages installed in a
+published image, so Dependabot is not a complete inventory or vulnerability scan
+of that image.
+
+The [CI workflow](.github/workflows/ci.yaml) checks every PR (including Dependabot
+PRs) with the test suite on Python 3.13 and the latest stable Python 3, `pip check`,
+and a container build and health check. It uses read-only repository permissions
+and does not publish images or require registry secrets. Updates require manual
+review and merge; automatic merging is not configured. Maintainers can make the
+CI jobs required checks in branch protection.
+
 ## Security considerations
 
 - The bridge deliberately does not authenticate callers or restrict target addresses or RPC methods. Access is controlled by the shared trusted Docker network; the included Compose deployment publishes no host port.
