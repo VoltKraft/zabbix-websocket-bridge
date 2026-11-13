@@ -12,9 +12,11 @@ from websockets.exceptions import WebSocketException
 from .jsonrpc import build_request, parse_response
 from .logging import sanitize_url
 from .models import BatchRequest, BatchResponse, CallResult
-from .limits import MAX_MESSAGE_BYTES, MAX_RESPONSE_BYTES, validate_json_budget
 
 logger = logging.getLogger(__name__)
+# Protocol debug logs include authentication headers and complete frame payloads.
+protocol_logger = logging.Logger(__name__ + ".protocol")
+protocol_logger.disabled = True
 
 
 class BridgeConnectionError(RuntimeError):
@@ -36,26 +38,23 @@ async def execute_batch(request: BatchRequest) -> BatchResponse:
                 open_timeout=request.timeout,
                 close_timeout=min(request.timeout, 10),
                 max_queue=1,
-                max_size=MAX_MESSAGE_BYTES,
+                max_size=None,
+                logger=protocol_logger,
                 compression=None,
             ) as websocket:
                 results: dict[str, CallResult] = {}
-                response_bytes = 0
                 for index, call in enumerate(request.calls, start=1):
                     message = build_request(call, index)
                     await websocket.send(json.dumps(message, separators=(",", ":")))
                     raw_response = await websocket.recv()
-                    response_bytes += len(raw_response.encode() if isinstance(raw_response, str) else raw_response)
-                    if response_bytes > MAX_RESPONSE_BYTES:
-                        raise BridgeConnectionError("Target response budget exceeded")
                     results[call.name] = parse_response(_decode_json(raw_response), index)
                 return BatchResponse(ok=True, results=results, errors=[])
-    except TimeoutError as exc:
+    except TimeoutError:
         logger.error("Timed out while communicating with target %s", safe_url)
-        raise BridgeConnectionError("Timed out while communicating with target") from exc
-    except (OSError, WebSocketException, ValueError) as exc:
+        raise BridgeConnectionError("Timed out while communicating with target") from None
+    except (OSError, WebSocketException, ValueError):
         logger.error("WebSocket communication failed for target %s", safe_url)
-        raise BridgeConnectionError("WebSocket communication failed") from exc
+        raise BridgeConnectionError("WebSocket communication failed") from None
 
 
 def _ssl_context(url: str, verify_tls: bool) -> ssl.SSLContext | None:
@@ -69,7 +68,8 @@ def _ssl_context(url: str, verify_tls: bool) -> ssl.SSLContext | None:
 
 
 def _decode_json(raw_response: str | bytes) -> Any:
+    """Parse responses independently of the incoming HTTP request budgets."""
     try:
-        return validate_json_budget(json.loads(raw_response))
+        return json.loads(raw_response)
     except (ValueError, RecursionError):
         return None

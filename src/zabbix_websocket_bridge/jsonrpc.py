@@ -24,12 +24,8 @@ def parse_response(payload: Any, expected_id: int) -> CallResult:
         return CallResult(ok=False, error="Invalid JSON-RPC response: unexpected id")
 
     if "error" in payload:
-        error = payload["error"]
-        if isinstance(error, dict):
-            message = error.get("message") or str(error)
-        else:
-            message = str(error)
-        return CallResult(ok=False, error=message)
+        # Remote error text/data can echo credentials or complete requests.
+        return CallResult(ok=False, error="Target returned a JSON-RPC error")
 
     if "result" not in payload:
         return CallResult(ok=False, error="Invalid JSON-RPC response: missing result")

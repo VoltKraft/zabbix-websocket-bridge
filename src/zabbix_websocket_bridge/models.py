@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-from .limits import MAX_BODY_BYTES, MAX_MESSAGE_BYTES, validate_json_budget, validate_url
+from .limits import MAX_BODY_BYTES, MAX_REQUEST_MESSAGE_BYTES, validate_json_budget, validate_url
 
 
 class Target(BaseModel):
@@ -53,7 +53,7 @@ class BatchRequest(BaseModel):
         for index, call in enumerate(self.calls, start=1):
             message = {"jsonrpc": "2.0", "id": index, "method": call.method, "params": call.params}
             size = len(json.dumps(message, separators=(",", ":"), allow_nan=False).encode())
-            if size > MAX_MESSAGE_BYTES:
+            if size > MAX_REQUEST_MESSAGE_BYTES:
                 raise ValueError("Serialized RPC message limit exceeded")
             total += size
         if total > MAX_BODY_BYTES:

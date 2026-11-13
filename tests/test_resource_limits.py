@@ -230,7 +230,7 @@ async def test_tls_verification_follows_request_setting(
 
 
 @pytest.mark.parametrize("response", ["x" * (64 * 1024 + 1), '["\\ud800"]'])
-async def test_invalid_or_oversized_target_response_is_contained(response):
+async def test_invalid_target_response_is_contained(response):
     async def handler(ws):
         await ws.recv()
         await ws.send(response)
@@ -238,12 +238,8 @@ async def test_invalid_or_oversized_target_response_is_contained(response):
     async with serve(handler, "127.0.0.1", 0) as server:
         url = f"ws://localhost:{server.sockets[0].getsockname()[1]}/ws"
         request = BatchRequest.model_validate(payload(url))
-        if len(response) > 64 * 1024:
-            with pytest.raises(BridgeConnectionError):
-                await execute_batch(request)
-        else:
-            result = await execute_batch(request)
-            assert result.results["status"].ok is False
+        result = await execute_batch(request)
+        assert result.results["status"].ok is False
 
 
 def test_logs_omit_sensitive_path_and_query():

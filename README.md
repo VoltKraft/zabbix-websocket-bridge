@@ -74,8 +74,8 @@ Validation rules:
 - `timeout` is optional, defaults to 10 seconds, and may not exceed 60 seconds.
 - Unknown fields are rejected.
 - Bodies are limited to 128 KiB (including streamed/chunked requests), UTF-8, and 32 levels of JSON nesting before parsing. Body reception must finish within 10 seconds.
-- JSON params are limited to 8192 aggregate nodes and 2048 items per collection. Serialized RPC messages are limited to 64 KiB each and 128 KiB per batch. Only finite JSON numbers are accepted.
-- Target responses are limited to 64 KiB per WebSocket message and 1 MiB per batch; WebSocket compression is disabled.
+- JSON params are limited to 8192 aggregate nodes and 2048 items per collection. Serialized RPC messages are limited to 64 KiB each and 128 KiB per batch. Request params accept only finite JSON numbers.
+- Received WebSocket responses have no application-imposed message-size or cumulative batch-size limit (`max_size=None`). Response JSON is parsed without the request-only depth, node-count, or collection-size budgets; JSON-RPC response validation remains in place. WebSocket compression is disabled. Responses still consume process memory and remain subject to the batch timeout and runtime/parser constraints.
 
 Successful response:
 
@@ -104,7 +104,7 @@ Individual call failure response:
     },
     "call_b": {
       "ok": false,
-      "error": "Remote error message"
+      "error": "Target returned a JSON-RPC error"
     }
   },
   "errors": []
@@ -287,7 +287,7 @@ CI jobs required checks in branch protection.
 - The authentication and arbitrary-target scan findings represent this intended trust model; they are not claimed as fixed in application code. The body-size and concurrent-request findings are addressed with application resource limits.
 - Keep the container resource limits and configure `BRIDGE_MAX_CONCURRENT_BATCHES` for the available capacity. `/health` reports process liveness.
 - The bridge does not store credentials, sessions, target definitions, request payloads, responses, or cached data.
-- Operational target logs include only the origin, not URL credentials, paths, or query strings. Avoid debug protocol logging when payloads contain credentials.
+- Operational target logs include only the origin, not URL credentials, paths, or query strings. Client protocol logging is disabled even at debug level to keep authentication messages and response payloads out of logs. Remote JSON-RPC errors return a generic message rather than potentially sensitive target error text/data.
 - If credentials are embedded in a WebSocket URL, they are used only for the outbound connection and are removed from operational log messages.
 - TLS verification is enabled by default for `wss://` targets. Disable it only for controlled development or test environments.
 - The container runs as a non-root user.

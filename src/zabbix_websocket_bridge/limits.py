@@ -10,8 +10,7 @@ MAX_BODY_BYTES = 128 * 1024
 MAX_JSON_DEPTH = 32
 MAX_JSON_NODES = 8192
 MAX_COLLECTION_ITEMS = 2048
-MAX_MESSAGE_BYTES = 64 * 1024
-MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_REQUEST_MESSAGE_BYTES = 64 * 1024
 
 
 def validate_url(value: str) -> str:
@@ -29,7 +28,7 @@ def validate_url(value: str) -> str:
 
 
 def validate_json_budget(value: object) -> object:
-    """Bound JSON complexity without recursive validation of untrusted objects."""
+    """Bound incoming request JSON complexity without recursive validation."""
     pending = [(value, 0)]
     nodes = 0
     while pending:

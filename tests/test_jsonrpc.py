@@ -25,7 +25,7 @@ def test_parse_remote_error_response() -> None:
     result = parse_response({"jsonrpc": "2.0", "id": 1, "error": {"message": "Remote failed"}}, 1)
 
     assert result.ok is False
-    assert result.error == "Remote failed"
+    assert result.error == "Target returned a JSON-RPC error"
 
 
 def test_parse_unexpected_id_response() -> None:
